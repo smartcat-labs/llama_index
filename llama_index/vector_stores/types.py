@@ -43,6 +43,9 @@ class VectorStoreQueryMode(str, Enum):
     HYBRID = "hybrid"
     TEXT_SEARCH = "text_search"
 
+    BM25 = "bm25"
+    SPLADE = "splade"
+
     # fit learners
     SVM = "svm"
     LOGISTIC_REGRESSION = "logistic_regression"

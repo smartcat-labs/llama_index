@@ -58,17 +58,46 @@ def build_dict(input_batch: List[List[int]]) -> List[Dict[str, Any]]:
 
 
 def generate_sparse_vectors(
-    context_batch: List[str], tokenizer: Callable
+    query_mode: VectorStoreQueryMode, context_batch: List[str], tokenizer: Callable
 ) -> List[Dict[str, Any]]:
-    """Generate sparse vectors from a batch of contexts.
-
-    NOTE: taken from https://www.pinecone.io/learn/hybrid-search-intro/.
-
     """
+<<<<<<< HEAD
     # create batch of input_ids
     inputs = tokenizer(context_batch)["input_ids"]
     # create sparse dictionaries
     return build_dict(inputs)
+=======
+    Generate sparse vectors from a batch of contexts.
+    In case of the HYBRID query_mode use SpladeEncoder as a default option for sparse vector generation.
+    """
+    if query_mode in (VectorStoreQueryMode.SPLADE, VectorStoreQueryMode.HYBRID):
+        try:
+            from pinecone_text.sparse import SpladeEncoder
+        except ImportError:
+            raise ImportError(import_err_msg_pinecone_text_splade)
+        
+        encoder = SpladeEncoder()
+
+    elif query_mode == VectorStoreQueryMode.BM25:
+        try:
+            from pinecone_text.sparse import BM25Encoder
+        except ImportError:
+            raise ImportError(import_err_msg_pinecone_text)
+                
+        # loading BM25Encoder with default parameters 
+        # (https://github.com/pinecone-io/pinecone-text#load-default-parameters)
+        encoder = BM25Encoder().default()
+
+    elif query_mode == VectorStoreQueryMode.SPARSE:
+        # create batch of input_ids
+        inputs = tokenizer(context_batch)["input_ids"]
+        # create sparse dictionaries
+        sparse_vectors = build_dict(inputs)
+    
+    sparse_vectors = encoder.encode_queries(context_batch)
+    
+    return sparse_vectors
+>>>>>>> b234225c (add support for BM25 and SPLADE sparse vectors)
 
 
 def get_default_tokenizer() -> Callable:
@@ -97,10 +126,17 @@ def _to_pinecone_filter(standard_filters: MetadataFilters) -> dict:
     return filters
 
 
-import_err_msg = (
+import_err_msg_pinecone = (
     "`pinecone` package not found, please run `pip install pinecone-client`"
 )
 
+import_err_msg_pinecone_text = (
+    "`pinecone_text` package not found, please run `pip install pinecone-text`"
+)
+
+import_err_msg_pinecone_text_splade = (
+    "`pinecone_text` package with splade extra not found, please run `pip install pinecone-text[splade]`"
+)
 
 class PineconeVectorStore(BasePydanticVectorStore):
     """Pinecone Vector Store.
@@ -154,7 +190,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
         try:
             import pinecone
         except ImportError:
-            raise ImportError(import_err_msg)
+            raise ImportError(import_err_msg_pinecone)
 
         if pinecone_index is not None:
             self._pinecone_index = cast(pinecone.Index, pinecone_index)
@@ -204,7 +240,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
         try:
             import pinecone
         except ImportError:
-            raise ImportError(import_err_msg)
+            raise ImportError(import_err_msg_pinecone)
 
         pinecone.init(api_key=api_key, environment=environment)
         pinecone_index = pinecone.Index(index_name)
@@ -301,15 +337,20 @@ class PineconeVectorStore(BasePydanticVectorStore):
 
         """
         sparse_vector = None
+<<<<<<< HEAD
         if (
             query.mode in (VectorStoreQueryMode.SPARSE, VectorStoreQueryMode.HYBRID)
             and self._tokenizer is not None
         ):
+=======
+        if query.mode in (VectorStoreQueryMode.SPARSE, VectorStoreQueryMode.BM25, VectorStoreQueryMode.SPLADE, VectorStoreQueryMode.HYBRID):
+         
+>>>>>>> b234225c (add support for BM25 and SPLADE sparse vectors)
             if query.query_str is None:
                 raise ValueError(
-                    "query_str must be specified if mode is SPARSE or HYBRID."
+                    "query_str must be specified if mode is SPARSE, BM25, SPLADE or HYBRID."
                 )
-            sparse_vector = generate_sparse_vectors([query.query_str], self._tokenizer)[
+            sparse_vector = generate_sparse_vectors(query.mode, [query.query_str], self._tokenizer)[
                 0
             ]
             if query.alpha is not None:
