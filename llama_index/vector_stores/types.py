@@ -52,6 +52,16 @@ class VectorStoreQueryMode(str, Enum):
     MMR = "mmr"
 
 
+class VectorStoreSparseEncoder(str, Enum):
+    """Vector store query mode."""
+
+    SPARSE_DICT = "SparseDict"
+
+    # encoder names implemented in pinecone-text library
+    BM25 = "BM25"
+    SPLADE = "Splade"
+
+
 class ExactMatchFilter(BaseModel):
     """Exact match metadata filter for vector stores.
 
