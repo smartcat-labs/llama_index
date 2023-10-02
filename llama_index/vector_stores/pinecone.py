@@ -31,6 +31,7 @@ SPARSE_VECTOR_KEY = "sparse_values"
 METADATA_KEY = "metadata"
 
 DEFAULT_BATCH_SIZE = 100
+DEFAULT_SPARSE_VECTOR_QUERY_MODE = VectorStoreQueryMode.SPLADE
 
 _logger = logging.getLogger(__name__)
 
@@ -68,33 +69,27 @@ def generate_sparse_vectors(
     return build_dict(inputs)
 =======
     Generate sparse vectors from a batch of contexts.
-    In case of the HYBRID query_mode use SpladeEncoder as a default option for sparse vector generation.
     """
-    if query_mode in (VectorStoreQueryMode.SPLADE, VectorStoreQueryMode.HYBRID):
-        try:
-            from pinecone_text.sparse import SpladeEncoder
-        except ImportError:
-            raise ImportError(import_err_msg_pinecone_text_splade)
-        
-        encoder = SpladeEncoder()
+    if query_mode == VectorStoreQueryMode.HYBRID:
+        # set default sparse vector query mode for Hybrid search
+        query_mode = DEFAULT_SPARSE_VECTOR_QUERY_MODE
 
-    elif query_mode == VectorStoreQueryMode.BM25:
-        try:
-            from pinecone_text.sparse import BM25Encoder
-        except ImportError:
-            raise ImportError(import_err_msg_pinecone_text)
-                
-        # loading BM25Encoder with default parameters 
-        # (https://github.com/pinecone-io/pinecone-text#load-default-parameters)
-        encoder = BM25Encoder().default()
-
-    elif query_mode == VectorStoreQueryMode.SPARSE:
+    if query_mode == VectorStoreQueryMode.SPARSE:
         # create batch of input_ids
         inputs = tokenizer(context_batch)["input_ids"]
         # create sparse dictionaries
         sparse_vectors = build_dict(inputs)
     
-    sparse_vectors = encoder.encode_queries(context_batch)
+    else:
+        encoder_class_name = f"{query_mode}Encoder"
+
+        try:
+            import pinecone_text.sparse
+            encoder_class = getattr(pinecone_text.sparse, encoder_class_name)
+            encoder = encoder_class()
+            sparse_vectors = encoder.encode_queries(context_batch)
+        except ImportError:
+            raise ImportError(import_err_msg_pinecone_text)    
     
     return sparse_vectors
 >>>>>>> b234225c (add support for BM25 and SPLADE sparse vectors)
@@ -126,16 +121,12 @@ def _to_pinecone_filter(standard_filters: MetadataFilters) -> dict:
     return filters
 
 
-import_err_msg_pinecone = (
+import_err_msg_pinecone_client = (
     "`pinecone` package not found, please run `pip install pinecone-client`"
 )
 
 import_err_msg_pinecone_text = (
     "`pinecone_text` package not found, please run `pip install pinecone-text`"
-)
-
-import_err_msg_pinecone_text_splade = (
-    "`pinecone_text` package with splade extra not found, please run `pip install pinecone-text[splade]`"
 )
 
 class PineconeVectorStore(BasePydanticVectorStore):
@@ -190,7 +181,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
         try:
             import pinecone
         except ImportError:
-            raise ImportError(import_err_msg_pinecone)
+            raise ImportError(import_err_msg_pinecone_client)
 
         if pinecone_index is not None:
             self._pinecone_index = cast(pinecone.Index, pinecone_index)
@@ -240,7 +231,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
         try:
             import pinecone
         except ImportError:
-            raise ImportError(import_err_msg_pinecone)
+            raise ImportError(import_err_msg_pinecone_client)
 
         pinecone.init(api_key=api_key, environment=environment)
         pinecone_index = pinecone.Index(index_name)
