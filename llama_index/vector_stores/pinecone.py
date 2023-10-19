@@ -17,6 +17,7 @@ from llama_index.vector_stores.types import (
     VectorStoreQuery,
     VectorStoreQueryMode,
     VectorStoreQueryResult,
+    VectorStoreSparseEncoder
 )
 from llama_index.vector_stores.utils import (
     DEFAULT_TEXT_KEY,
@@ -31,68 +32,13 @@ SPARSE_VECTOR_KEY = "sparse_values"
 METADATA_KEY = "metadata"
 
 DEFAULT_BATCH_SIZE = 100
-DEFAULT_SPARSE_VECTOR_QUERY_MODE = VectorStoreQueryMode.SPLADE
+DEFAULT_SPARSE_VECTOR_ENCODER = VectorStoreSparseEncoder.SPLADE
 
 _logger = logging.getLogger(__name__)
 
+import_err_msg_pinecone_client = ("`pinecone` package not found, please run `pip install pinecone-client`")
 
-def build_dict(input_batch: List[List[int]]) -> List[Dict[str, Any]]:
-    """Build a list of sparse dictionaries from a batch of input_ids.
-
-    NOTE: taken from https://www.pinecone.io/learn/hybrid-search-intro/.
-
-    """
-    # store a batch of sparse embeddings
-    sparse_emb = []
-    # iterate through input batch
-    for token_ids in input_batch:
-        indices = []
-        values = []
-        # convert the input_ids list to a dictionary of key to frequency values
-        d = dict(Counter(token_ids))
-        for idx in d:
-            indices.append(idx)
-            values.append(float(d[idx]))
-        sparse_emb.append({"indices": indices, "values": values})
-    # return sparse_emb list
-    return sparse_emb
-
-
-def generate_sparse_vectors(
-    query_mode: VectorStoreQueryMode, context_batch: List[str], tokenizer: Callable
-) -> List[Dict[str, Any]]:
-    """
-<<<<<<< HEAD
-    # create batch of input_ids
-    inputs = tokenizer(context_batch)["input_ids"]
-    # create sparse dictionaries
-    return build_dict(inputs)
-=======
-    Generate sparse vectors from a batch of contexts.
-    """
-    if query_mode == VectorStoreQueryMode.HYBRID:
-        # set default sparse vector query mode for Hybrid search
-        query_mode = DEFAULT_SPARSE_VECTOR_QUERY_MODE
-
-    if query_mode == VectorStoreQueryMode.SPARSE:
-        # create batch of input_ids
-        inputs = tokenizer(context_batch)["input_ids"]
-        # create sparse dictionaries
-        sparse_vectors = build_dict(inputs)
-    
-    else:
-        encoder_class_name = f"{query_mode}Encoder"
-
-        try:
-            import pinecone_text.sparse
-            encoder_class = getattr(pinecone_text.sparse, encoder_class_name)
-            encoder = encoder_class()
-            sparse_vectors = encoder.encode_queries(context_batch)
-        except ImportError:
-            raise ImportError(import_err_msg_pinecone_text)    
-    
-    return sparse_vectors
->>>>>>> b234225c (add support for BM25 and SPLADE sparse vectors)
+import_err_msg_pinecone_text = ("`pinecone_text` package not found, please run `pip install pinecone-text`")
 
 
 def get_default_tokenizer() -> Callable:
@@ -113,6 +59,59 @@ def get_default_tokenizer() -> Callable:
     )
 
 
+def build_sparse_dict(input_batch: List[List[int]]) -> List[Dict[str, Any]]:
+    """Build a list of sparse dictionaries from a batch of input_ids.
+
+    NOTE: taken from https://www.pinecone.io/learn/hybrid-search-intro/.
+
+    """
+    sparse_emb = []
+    for token_ids in input_batch:
+        indices = []
+        values = []
+        # convert the input_ids list to a dictionary of key to frequency values
+        d = dict(Counter(token_ids))
+        for idx in d:
+            indices.append(idx)
+            values.append(float(d[idx]))
+        sparse_emb.append({"indices": indices, "values": values})
+    return sparse_emb
+
+
+def encode_batch(sparse_encoder: VectorStoreSparseEncoder, context_batch: List[str], query_mode: bool) -> List[float]:
+    try:
+        import pinecone_text.sparse
+
+        encoder_class_name = f"{sparse_encoder}Encoder"
+        encoder_class = getattr(pinecone_text.sparse, encoder_class_name)
+        encoder = (
+            encoder_class()
+            if sparse_encoder != VectorStoreSparseEncoder.BM25
+            else encoder_class().default()
+        )
+        if query_mode:
+            sparse_vectors = encoder.encode_queries(context_batch)
+        else:
+            sparse_vectors = encoder.encode_documents(context_batch)
+        return sparse_vectors
+    except ImportError:
+        raise ImportError(import_err_msg_pinecone_text)
+
+
+def generate_sparse_vectors(
+    sparse_encoder: VectorStoreSparseEncoder, context_batch: List[str], tokenizer: Callable, query_mode: bool = False
+) -> List[Dict[str, Any]]:
+    """
+    Generate sparse vectors from a batch of contexts.
+    """
+    if sparse_encoder == VectorStoreSparseEncoder.SPARSE_DICT:
+        sparse_vectors = build_sparse_dict(tokenizer(context_batch)["input_ids"])
+    else:
+        sparse_vectors = encode_batch(sparse_encoder, context_batch, query_mode)
+
+    return sparse_vectors
+
+
 def _to_pinecone_filter(standard_filters: MetadataFilters) -> dict:
     """Convert from standard dataclass to pinecone filter dict."""
     filters = {}
@@ -120,14 +119,6 @@ def _to_pinecone_filter(standard_filters: MetadataFilters) -> dict:
         filters[filter.key] = filter.value
     return filters
 
-
-import_err_msg_pinecone_client = (
-    "`pinecone` package not found, please run `pip install pinecone-client`"
-)
-
-import_err_msg_pinecone_text = (
-    "`pinecone_text` package not found, please run `pip install pinecone-text`"
-)
 
 class PineconeVectorStore(BasePydanticVectorStore):
     """Pinecone Vector Store.
@@ -155,6 +146,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
     namespace: Optional[str]
     insert_kwargs: Optional[Dict]
     add_sparse_vector: bool
+    sparse_vector_encoder: Optional[VectorStoreSparseEncoder]
     text_key: str
     batch_size: int
     remove_text_from_metadata: bool
@@ -171,6 +163,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
         namespace: Optional[str] = None,
         insert_kwargs: Optional[Dict] = None,
         add_sparse_vector: bool = False,
+        sparse_vector_encoder: Optional[VectorStoreSparseEncoder] = DEFAULT_SPARSE_VECTOR_ENCODER,
         tokenizer: Optional[Callable] = None,
         text_key: str = DEFAULT_TEXT_KEY,
         batch_size: int = DEFAULT_BATCH_SIZE,
@@ -208,6 +201,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
             namespace=namespace,
             insert_kwargs=insert_kwargs,
             add_sparse_vector=add_sparse_vector,
+            sparse_vector_encoder=sparse_vector_encoder,
             text_key=text_key,
             batch_size=batch_size,
             remove_text_from_metadata=remove_text_from_metadata,
@@ -222,6 +216,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
         namespace: Optional[str] = None,
         insert_kwargs: Optional[Dict] = None,
         add_sparse_vector: bool = False,
+        sparse_vector_encoder: Optional[VectorStoreSparseEncoder] = DEFAULT_SPARSE_VECTOR_ENCODER,
         tokenizer: Optional[Callable] = None,
         text_key: str = DEFAULT_TEXT_KEY,
         batch_size: int = DEFAULT_BATCH_SIZE,
@@ -244,6 +239,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
             namespace=namespace,
             insert_kwargs=insert_kwargs,
             add_sparse_vector=add_sparse_vector,
+            sparse_vector_encoder=sparse_vector_encoder,
             tokenizer=tokenizer,
             text_key=text_key,
             batch_size=batch_size,
@@ -282,15 +278,18 @@ class PineconeVectorStore(BasePydanticVectorStore):
                 VECTOR_KEY: node.get_embedding(),
                 METADATA_KEY: metadata,
             }
+
             if self.add_sparse_vector and self._tokenizer is not None:
                 sparse_vector = generate_sparse_vectors(
+                    self.sparse_vector_encoder,
                     [node.get_content(metadata_mode=MetadataMode.EMBED)],
-                    self._tokenizer,
+                    self._tokenizer
                 )[0]
                 entry[SPARSE_VECTOR_KEY] = sparse_vector
 
             ids.append(node_id)
             entries.append(entry)
+
         self._pinecone_index.upsert(
             entries,
             namespace=self.namespace,
@@ -323,27 +322,24 @@ class PineconeVectorStore(BasePydanticVectorStore):
         """Query index for top k most similar nodes.
 
         Args:
-            query_embedding (List[float]): query embedding
-            similarity_top_k (int): top k most similar nodes
-
+            query (VectorStoreQuery): vector store query
         """
         sparse_vector = None
-<<<<<<< HEAD
-        if (
-            query.mode in (VectorStoreQueryMode.SPARSE, VectorStoreQueryMode.HYBRID)
-            and self._tokenizer is not None
-        ):
-=======
-        if query.mode in (VectorStoreQueryMode.SPARSE, VectorStoreQueryMode.BM25, VectorStoreQueryMode.SPLADE, VectorStoreQueryMode.HYBRID):
-         
->>>>>>> b234225c (add support for BM25 and SPLADE sparse vectors)
+        if (query.mode in (VectorStoreQueryMode.SPARSE, VectorStoreQueryMode.HYBRID)
+            and self._tokenizer is not None):
+
             if query.query_str is None:
                 raise ValueError(
-                    "query_str must be specified if mode is SPARSE, BM25, SPLADE or HYBRID."
+                    "query_str must be specified if mode is SPARSE or HYBRID."
                 )
-            sparse_vector = generate_sparse_vectors(query.mode, [query.query_str], self._tokenizer)[
-                0
-            ]
+            
+            sparse_vector = generate_sparse_vectors(
+                self.sparse_vector_encoder, 
+                [query.query_str], 
+                self._tokenizer, 
+                query_mode=True
+            )[0]
+
             if query.alpha is not None:
                 sparse_vector = {
                     "indices": sparse_vector["indices"],

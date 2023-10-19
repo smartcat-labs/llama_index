@@ -44,8 +44,8 @@ class VectorStoreQueryMode(str, Enum):
     TEXT_SEARCH = "text_search"
 
     # encoder names implemented in pinecone-text library
-    BM25 = "BM25"
-    SPLADE = "Splade"
+    # BM25 = "BM25"
+    # SPLADE = "Splade"
 
     # fit learners
     SVM = "svm"
@@ -54,6 +54,16 @@ class VectorStoreQueryMode(str, Enum):
 
     # maximum marginal relevance
     MMR = "mmr"
+
+
+class VectorStoreSparseEncoder(str, Enum):
+    """Vector store query mode."""
+
+    SPARSE_DICT = "SparseDict"
+
+    # encoder names implemented in pinecone-text library
+    BM25 = "BM25"
+    SPLADE = "Splade"
 
 
 class ExactMatchFilter(BaseModel):
