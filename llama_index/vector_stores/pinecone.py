@@ -17,7 +17,7 @@ from llama_index.vector_stores.types import (
     VectorStoreQuery,
     VectorStoreQueryMode,
     VectorStoreQueryResult,
-    VectorStoreSparseEncoder
+    VectorStoreSparseEncoder,
 )
 from llama_index.vector_stores.utils import (
     DEFAULT_TEXT_KEY,
@@ -36,9 +36,13 @@ DEFAULT_SPARSE_VECTOR_ENCODER = VectorStoreSparseEncoder.SPLADE
 
 _logger = logging.getLogger(__name__)
 
-import_err_msg_pinecone_client = ("`pinecone` package not found, please run `pip install pinecone-client`")
+import_err_msg_pinecone_client = (
+    "`pinecone` package not found, please run `pip install pinecone-client`"
+)
 
-import_err_msg_pinecone_text = ("`pinecone_text` package not found, please run `pip install pinecone-text`")
+import_err_msg_pinecone_text = (
+    "`pinecone_text` package not found, please run `pip install pinecone-text`"
+)
 
 
 def get_default_tokenizer() -> Callable:
@@ -78,7 +82,9 @@ def build_sparse_dict(input_batch: List[List[int]]) -> List[Dict[str, Any]]:
     return sparse_emb
 
 
-def encode_batch(sparse_encoder: VectorStoreSparseEncoder, context_batch: List[str], query_mode: bool) -> List[float]:
+def encode_batch(
+    sparse_encoder: VectorStoreSparseEncoder, context_batch: List[str], query_mode: bool
+) -> List[float]:
     try:
         import pinecone_text.sparse
 
@@ -99,7 +105,10 @@ def encode_batch(sparse_encoder: VectorStoreSparseEncoder, context_batch: List[s
 
 
 def generate_sparse_vectors(
-    sparse_encoder: VectorStoreSparseEncoder, context_batch: List[str], tokenizer: Callable, query_mode: bool = False
+    sparse_encoder: VectorStoreSparseEncoder,
+    context_batch: List[str],
+    tokenizer: Callable,
+    query_mode: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Generate sparse vectors from a batch of contexts.
@@ -163,7 +172,9 @@ class PineconeVectorStore(BasePydanticVectorStore):
         namespace: Optional[str] = None,
         insert_kwargs: Optional[Dict] = None,
         add_sparse_vector: bool = False,
-        sparse_vector_encoder: Optional[VectorStoreSparseEncoder] = DEFAULT_SPARSE_VECTOR_ENCODER,
+        sparse_vector_encoder: Optional[
+            VectorStoreSparseEncoder
+        ] = DEFAULT_SPARSE_VECTOR_ENCODER,
         tokenizer: Optional[Callable] = None,
         text_key: str = DEFAULT_TEXT_KEY,
         batch_size: int = DEFAULT_BATCH_SIZE,
@@ -216,7 +227,9 @@ class PineconeVectorStore(BasePydanticVectorStore):
         namespace: Optional[str] = None,
         insert_kwargs: Optional[Dict] = None,
         add_sparse_vector: bool = False,
-        sparse_vector_encoder: Optional[VectorStoreSparseEncoder] = DEFAULT_SPARSE_VECTOR_ENCODER,
+        sparse_vector_encoder: Optional[
+            VectorStoreSparseEncoder
+        ] = DEFAULT_SPARSE_VECTOR_ENCODER,
         tokenizer: Optional[Callable] = None,
         text_key: str = DEFAULT_TEXT_KEY,
         batch_size: int = DEFAULT_BATCH_SIZE,
@@ -283,7 +296,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
                 sparse_vector = generate_sparse_vectors(
                     self.sparse_vector_encoder,
                     [node.get_content(metadata_mode=MetadataMode.EMBED)],
-                    self._tokenizer
+                    self._tokenizer,
                 )[0]
                 entry[SPARSE_VECTOR_KEY] = sparse_vector
 
@@ -325,19 +338,20 @@ class PineconeVectorStore(BasePydanticVectorStore):
             query (VectorStoreQuery): vector store query
         """
         sparse_vector = None
-        if (query.mode in (VectorStoreQueryMode.SPARSE, VectorStoreQueryMode.HYBRID)
-            and self._tokenizer is not None):
-
+        if (
+            query.mode in (VectorStoreQueryMode.SPARSE, VectorStoreQueryMode.HYBRID)
+            and self._tokenizer is not None
+        ):
             if query.query_str is None:
                 raise ValueError(
                     "query_str must be specified if mode is SPARSE or HYBRID."
                 )
-            
+
             sparse_vector = generate_sparse_vectors(
-                self.sparse_vector_encoder, 
-                [query.query_str], 
-                self._tokenizer, 
-                query_mode=True
+                self.sparse_vector_encoder,
+                [query.query_str],
+                self._tokenizer,
+                query_mode=True,
             )[0]
 
             if query.alpha is not None:
@@ -347,7 +361,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
                 }
 
         query_embedding = None
-        if query.mode in (VectorStoreQueryMode.DEFAULT, VectorStoreQueryMode.HYBRID):
+        if query.mode in (VectorStoreQueryMode.DEFAULT, VectorStoreQueryMode.HYBRID, VectorStoreQueryMode.SPARSE):
             query_embedding = cast(List[float], query.query_embedding)
             if query.alpha is not None:
                 query_embedding = [v * query.alpha for v in query_embedding]
@@ -363,16 +377,28 @@ class PineconeVectorStore(BasePydanticVectorStore):
         else:
             filter = kwargs.pop("filter", {})
 
-        response = self._pinecone_index.query(
-            vector=query_embedding,
-            sparse_vector=sparse_vector,
-            top_k=query.similarity_top_k,
-            include_values=True,
-            include_metadata=True,
-            namespace=self.namespace,
-            filter=filter,
-            **kwargs,
-        )
+        if query.mode == VectorStoreQueryMode.DEFAULT:
+            response = self._pinecone_index.query(
+                vector=query_embedding,
+                # sparse_vector=sparse_vector,
+                top_k=query.similarity_top_k,
+                include_values=True,
+                include_metadata=True,
+                namespace=self.namespace,
+                filter=filter,
+                **kwargs,
+            )
+        elif query.mode in (VectorStoreQueryMode.SPARSE, VectorStoreQueryMode.HYBRID):
+            response = self._pinecone_index.query(
+                vector=query_embedding,
+                sparse_vector=sparse_vector,
+                top_k=query.similarity_top_k,
+                include_values=True,
+                include_metadata=True,
+                namespace=self.namespace,
+                filter=filter,
+                **kwargs,
+            )
 
         top_k_nodes = []
         top_k_ids = []
