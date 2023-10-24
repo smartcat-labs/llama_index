@@ -84,7 +84,7 @@ def build_sparse_dict(input_batch: List[List[int]]) -> List[Dict[str, Any]]:
 
 def encode_batch(
     sparse_encoder: VectorStoreSparseEncoder, context_batch: List[str], query_mode: bool
-) -> List[float]:
+) -> List[Dict[str, Any]]:
     try:
         import pinecone_text.sparse
 
@@ -294,7 +294,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
 
             if self.add_sparse_vector and self._tokenizer is not None:
                 sparse_vector = generate_sparse_vectors(
-                    self.sparse_vector_encoder,
+                    self.sparse_vector_encoder,  # type: ignore
                     [node.get_content(metadata_mode=MetadataMode.EMBED)],
                     self._tokenizer,
                 )[0]
@@ -333,10 +333,13 @@ class PineconeVectorStore(BasePydanticVectorStore):
 
     def query(self, query: VectorStoreQuery, **kwargs: Any) -> VectorStoreQueryResult:
         # Check vector store and query mode compatibility
-        if not self.add_sparse_vector and query.mode in (VectorStoreQueryMode.HYBRID, VectorStoreQueryMode.SPARSE):
+        if not self.add_sparse_vector and query.mode in (
+            VectorStoreQueryMode.HYBRID,
+            VectorStoreQueryMode.SPARSE,
+        ):
             raise ValueError(
-                """Cannot query PineconeVectorStore in HYBRID or SPARSE mode because 
-                the vector store doesn't include sparse values. To have them please 
+                """Cannot query PineconeVectorStore in HYBRID or SPARSE mode because
+                the vector store doesn't include sparse values. To have them please
                 set add_sparse_vectors to True during the PineconeVectorStore initialization."""
             )
 
@@ -357,7 +360,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
                 )
 
             sparse_vector = generate_sparse_vectors(
-                self.sparse_vector_encoder,
+                self.sparse_vector_encoder,  # type: ignore
                 [query.query_str],
                 self._tokenizer,
                 query_mode=True,
