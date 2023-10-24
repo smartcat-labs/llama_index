@@ -330,76 +330,51 @@ class PineconeVectorStore(BasePydanticVectorStore):
     def client(self) -> Any:
         """Return Pinecone client."""
         return self._pinecone_index
-
+    
     def query(self, query: VectorStoreQuery, **kwargs: Any) -> VectorStoreQueryResult:
-        """Query index for top k most similar nodes.
 
-        Args:
-            query (VectorStoreQuery): vector store query
-        """
+        # Handle query embedding
+        query_embedding = cast(List[float], query.query_embedding)
+        if query.alpha is not None:
+            query_embedding = [v * query.alpha for v in query_embedding]
+
+        # Handle sparse vector generation
         sparse_vector = None
-        if (
-            query.mode in (VectorStoreQueryMode.SPARSE, VectorStoreQueryMode.HYBRID)
-            and self._tokenizer is not None
-        ):
+        if query.mode in (VectorStoreQueryMode.SPARSE, VectorStoreQueryMode.HYBRID) and self._tokenizer is not None:
+            
             if query.query_str is None:
-                raise ValueError(
-                    "query_str must be specified if mode is SPARSE or HYBRID."
-                )
-
-            sparse_vector = generate_sparse_vectors(
-                self.sparse_vector_encoder,
-                [query.query_str],
-                self._tokenizer,
-                query_mode=True,
-            )[0]
-
+                raise ValueError("query_str must be specified if mode is SPARSE or HYBRID.")
+            
+            sparse_vector = generate_sparse_vectors(self.sparse_vector_encoder, [query.query_str], self._tokenizer, query_mode=True)[0]
+            
             if query.alpha is not None:
                 sparse_vector = {
-                    "indices": sparse_vector["indices"],
+                    "indices": sparse_vector["indices"], 
                     "values": [v * (1 - query.alpha) for v in sparse_vector["values"]],
                 }
 
-        query_embedding = None
-        if query.mode in (VectorStoreQueryMode.DEFAULT, VectorStoreQueryMode.HYBRID, VectorStoreQueryMode.SPARSE):
-            query_embedding = cast(List[float], query.query_embedding)
-            if query.alpha is not None:
-                query_embedding = [v * query.alpha for v in query_embedding]
-
+        # Handle filter
         if query.filters is not None:
             if "filter" in kwargs:
                 raise ValueError(
-                    "Cannot specify filter via both query and kwargs. "
-                    "Use kwargs only for pinecone specific items that are "
-                    "not supported via the generic query interface."
-                )
+                    "Cannot specify filter via both query and kwargs. Use kwargs only for Pinecone-specific items.")
             filter = _to_pinecone_filter(query.filters)
         else:
             filter = kwargs.pop("filter", {})
 
-        if query.mode == VectorStoreQueryMode.DEFAULT:
-            response = self._pinecone_index.query(
-                vector=query_embedding,
-                # sparse_vector=sparse_vector,
-                top_k=query.similarity_top_k,
-                include_values=True,
-                include_metadata=True,
-                namespace=self.namespace,
-                filter=filter,
-                **kwargs,
-            )
-        elif query.mode in (VectorStoreQueryMode.SPARSE, VectorStoreQueryMode.HYBRID):
-            response = self._pinecone_index.query(
-                vector=query_embedding,
-                sparse_vector=sparse_vector,
-                top_k=query.similarity_top_k,
-                include_values=True,
-                include_metadata=True,
-                namespace=self.namespace,
-                filter=filter,
-                **kwargs,
-            )
+        # Perform the query based on the mode
+        response = self._pinecone_index.query(
+            vector=query_embedding,
+            sparse_vector=sparse_vector if query.mode in {VectorStoreQueryMode.SPARSE, VectorStoreQueryMode.HYBRID} else None,
+            top_k=query.similarity_top_k,
+            include_values=True,
+            include_metadata=True,
+            namespace=self.namespace,
+            filter=filter,
+            **kwargs,
+        )
 
+        # Process the response
         top_k_nodes = []
         top_k_ids = []
         top_k_scores = []
@@ -408,14 +383,8 @@ class PineconeVectorStore(BasePydanticVectorStore):
                 node = metadata_dict_to_node(match.metadata)
                 node.embedding = match.values
             except Exception:
-                # NOTE: deprecated legacy logic for backward compatibility
-                _logger.debug(
-                    "Failed to parse Node metadata, fallback to legacy logic."
-                )
-                metadata, node_info, relationships = legacy_metadata_dict_to_node(
-                    match.metadata, text_key=self.text_key
-                )
-
+                _logger.debug("Failed to parse Node metadata, fallback to legacy logic.")
+                metadata, node_info, relationships = legacy_metadata_dict_to_node(match.metadata, text_key=self.text_key)
                 text = match.metadata[self.text_key]
                 id = match.id
                 node = TextNode(
@@ -429,7 +398,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
             top_k_ids.append(match.id)
             top_k_nodes.append(node)
             top_k_scores.append(match.score)
-
+        
         return VectorStoreQueryResult(
             nodes=top_k_nodes, similarities=top_k_scores, ids=top_k_ids
         )
