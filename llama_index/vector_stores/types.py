@@ -43,10 +43,6 @@ class VectorStoreQueryMode(str, Enum):
     HYBRID = "hybrid"
     TEXT_SEARCH = "text_search"
 
-    # encoder names implemented in pinecone-text library
-    # BM25 = "BM25"
-    # SPLADE = "Splade"
-
     # fit learners
     SVM = "svm"
     LOGISTIC_REGRESSION = "logistic_regression"
