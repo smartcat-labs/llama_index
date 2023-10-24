@@ -332,6 +332,14 @@ class PineconeVectorStore(BasePydanticVectorStore):
         return self._pinecone_index
 
     def query(self, query: VectorStoreQuery, **kwargs: Any) -> VectorStoreQueryResult:
+        # Check vector store and query mode compatibility
+        if not self.add_sparse_vector and query.mode in (VectorStoreQueryMode.HYBRID, VectorStoreQueryMode.SPARSE):
+            raise ValueError(
+                """Cannot query PineconeVectorStore in HYBRID or SPARSE mode because 
+                the vector store doesn't include sparse values. To have them please 
+                set add_sparse_vectors to True during the PineconeVectorStore initialization."""
+            )
+
         # Handle query embedding
         query_embedding = cast(List[float], query.query_embedding)
         if query.alpha is not None:
