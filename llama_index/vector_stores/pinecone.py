@@ -216,7 +216,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
             and sparse_encoder is None
             and sparse_encoder_type != VectorStoreSparseEncoder.SPARSE_DICT
         ):
-            sparse_encoder = initialize_sparse_encoder(sparse_encoder_type)
+            sparse_encoder = initialize_sparse_encoder(sparse_encoder_type)  # type: ignore
         self._sparse_encoder = sparse_encoder
 
         super().__init__(
@@ -311,7 +311,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
 
             if self.add_sparse_vector and self._tokenizer is not None:
                 sparse_vector = generate_sparse_vectors(
-                    self.sparse_encoder_type,
+                    self.sparse_encoder_type,  # type: ignore
                     self._sparse_encoder,  # type: ignore
                     [node.get_content(metadata_mode=MetadataMode.EMBED)],
                     self._tokenizer,
@@ -378,7 +378,7 @@ class PineconeVectorStore(BasePydanticVectorStore):
                 )
 
             sparse_vector = generate_sparse_vectors(
-                self.sparse_encoder_type,
+                self.sparse_encoder_type,  # type: ignore
                 self._sparse_encoder,  # type: ignore
                 [query.query_str],
                 self._tokenizer,
